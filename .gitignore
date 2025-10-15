@@ -10,3 +10,7 @@ src/protobuf/*.pb.cc
 
 # experiment results
 scenario/results/*
+
+.snakemake
+.cmdenv-log
+.qtenvrc

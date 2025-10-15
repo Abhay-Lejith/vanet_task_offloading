@@ -7,7 +7,7 @@ Samples a random action for one episode.
 
 import gym
 import veins_gym
-
+import numpy as np
 
 def main():
     """Run the random agent."""
@@ -34,4 +34,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if not hasattr(np, 'bool8'):
+        np.bool8 = np.bool_
     main()
