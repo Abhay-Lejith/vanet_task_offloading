@@ -27,6 +27,7 @@ import org.car2x.veins.modules.obstacle.ObstacleControl;
 import org.car2x.veins.modules.obstacle.VehicleObstacleControl;
 import org.car2x.veins.modules.world.annotations.AnnotationManager;
 import org.car2x.veins.nodes.Car;
+import org.car2x.veins.nodes.RSU;
 import org.car2x.veinsvlc.VlcConnectionManager;
 
 import serpentine.GymConnection;
@@ -67,6 +68,8 @@ network SerpentineScenario
         gym_connection: GymConnection {}
         node[0]: Car {
         }
+    rsu[3]: RSU {
+    }
 
     connections allowunconnected:
 }

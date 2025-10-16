@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nodes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/nodes_file.xsd">
+    <node id="beg" x="0.00" y="0.00" type="priority"/>
+    <node id="end" x="1000.00" y="0.00" type="priority"/>
+    <!-- Optional: add RSU points as additional nodes if you later want junction visuals -->
+</nodes>
