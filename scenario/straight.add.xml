@@ -4,6 +4,4 @@
     <poi id="rsu1" x="500.0" y="0.0" color="255,0,0" layer="10" type="RSU"/>
     <poi id="rsu2" x="800.0" y="0.0" color="255,0,0" layer="10" type="RSU"/>
     <!-- You can change color or add imgFile/angle if desired -->
-    <!-- Example: <poi ... imgFile="poi/rsu.png"/> if you have an icon in SUMO's images path -->
-    
 </additional>

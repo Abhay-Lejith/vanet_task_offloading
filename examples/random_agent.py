@@ -17,6 +17,8 @@ def main():
         entry_point="veins_gym:VeinsEnv",
         kwargs={
             "scenario_dir": "../scenario",
+            "run_veins": False,  # do not start veins through Veins-Gym
+		    "port": 5555, 
         },
     )
 
