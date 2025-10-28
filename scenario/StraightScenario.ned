@@ -10,6 +10,7 @@ import org.car2x.veinsvlc.VlcConnectionManager;
 
 import serpentine.GymConnection;
 import straight.GymOffloader;
+import straight.TaskServer;
 
 
 network StraightScenario
@@ -48,6 +49,11 @@ network StraightScenario
         offloader: GymOffloader {}
         node[0]: Car {}
         rsu[3]: RSU {}
+        rsuServer[3]: TaskServer {}
 
     connections allowunconnected:
+        for i=0..2 {
+            offloader.out[i] --> rsuServer[i].in;
+            rsuServer[i].out --> offloader.in[i];
+        }
 }

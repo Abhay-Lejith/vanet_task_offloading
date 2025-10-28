@@ -36,6 +36,11 @@ GymOffloader::~GymOffloader() {
 void GymOffloader::initialize() {
     vehicleId = par("vehicleId").stdstringValue();
     pollInterval = par("pollInterval").doubleValue();
+    cpuFreqVehicle = par("cpuFreqVehicle").doubleValue();
+    cyclesPerByte = par("cyclesPerByte").doubleValue();
+    taskMinMB = par("taskMinMB").doubleValue();
+    taskMaxMB = par("taskMaxMB").doubleValue();
+    outputFactor = par("outputFactor").doubleValue();
 
     // find global GymConnection module (existing serpentine.GymConnection)
     gymCon = veins::FindModule<GymConnection*>::findGlobalModule();
@@ -68,10 +73,28 @@ void GymOffloader::finish() {
 }
 
 void GymOffloader::handleMessage(cMessage* msg) {
-    if (msg != tick) {
-        delete msg;
+    // Handle task completion messages from RSU or local processing
+    if (auto* done = dynamic_cast<straight::TaskDone*>(msg)) {
+        busy = false;
+        lastReward = 1.0 / std::max(1e-12, (simTime() - taskStart).dbl());
+        EV_INFO << "Task completed for vehicle '" << done->getVehicleId() << "' totalTime=" << (simTime() - taskStart) << "s, reward=" << lastReward << "\n";
+        delete done;
+        // Reschedule next tick (cancel if already scheduled)
+        if (tick) cancelEvent(tick);
+        scheduleAt(simTime() + pollInterval, tick);
         return;
     }
+    if (msg->isSelfMessage() && msg != tick) {
+        // Local processing done
+        busy = false;
+        lastReward = 1.0 / std::max(1e-12, (simTime() - taskStart).dbl());
+        EV_INFO << "Local task completed totalTime=" << (simTime() - taskStart) << "s, reward=" << lastReward << "\n";
+        delete msg;
+        if (tick) cancelEvent(tick);
+        scheduleAt(simTime() + pollInterval, tick);
+        return;
+    }
+    if (msg != tick) { delete msg; return; }
 
     // Ensure TraCI and scenario objects are ready before computing observations
     auto manager = TraCIScenarioManagerAccess().get();
@@ -126,7 +149,40 @@ void GymOffloader::handleMessage(cMessage* msg) {
     int action = reply.action().discrete().value();
     EV_INFO << "RL action received: " << action << " (0=no offload, 1=RSU0, 2=RSU1, 3=RSU2)\n";
 
-    // TODO: enact task offloading based on action (e.g., send message to RSU), not implemented yet
+    // If not currently processing a task, create and execute one based on action
+    if (!busy) {
+        // Sample task parameters
+        double inputMB = uniform(taskMinMB, taskMaxMB);
+        int64_t inputBytes = (int64_t) std::llround(inputMB * 1e6);
+        int64_t outputBytes = (int64_t) std::llround(outputFactor * inputBytes);
+        int64_t cycles = (int64_t) std::llround(cyclesPerByte * (double)inputBytes);
+        taskStart = simTime();
+        busy = true;
+
+        if (action == 0) {
+            // Local processing
+            double t_cpu = (double)cycles / cpuFreqVehicle;
+            cMessage* localDone = new cMessage("localDone");
+            scheduleAt(simTime() + t_cpu, localDone);
+            EV_INFO << "Starting LOCAL compute: inputBytes=" << inputBytes << " cycles=" << cycles << " t_cpu=" << t_cpu << "s\n";
+        } else {
+            int rsuIdx = action - 1;
+            if (rsuIdx < 0 || rsuIdx >= 3) {
+                EV_WARN << "Invalid action " << action << ", defaulting to local processing\n";
+                double t_cpu = (double)cycles / cpuFreqVehicle;
+                cMessage* localDone = new cMessage("localDone");
+                scheduleAt(simTime() + t_cpu, localDone);
+            } else {
+                auto* req = new straight::TaskRequest();
+                req->setVehicleId(vehicleId.c_str());
+                req->setInputBytes(inputBytes);
+                req->setOutputBytes(outputBytes);
+                req->setCycles(cycles);
+                send(req, "out", rsuIdx);
+                EV_INFO << "Offloading to RSU[" << rsuIdx << "]: input=" << inputBytes << "B output=" << outputBytes << "B cycles=" << cycles << "\n";
+            }
+        }
+    }
 
     scheduleAt(simTime() + pollInterval, tick);
 }
@@ -186,9 +242,10 @@ double GymOffloader::estimateBandwidth(double distance) const {
 }
 
 double GymOffloader::computeReward() const {
-    // Placeholder reward identical in spirit to GymSplitter's ability to compute reward,
-    // but returning 0.0 until a proper task/offload signal is wired.
-    return 0.0;
+    // Return lastReward once, then reset to 0 for subsequent steps
+    double r = lastReward;
+    const_cast<GymOffloader*>(this)->lastReward = 0.0;
+    return r;
 }
 
 veinsgym::proto::Request GymOffloader::serializeObservation(const std::array<double, 7>& observation, double reward) const {
