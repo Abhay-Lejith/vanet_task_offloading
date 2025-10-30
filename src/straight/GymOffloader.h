@@ -12,6 +12,7 @@
 #include "serpentine/GymConnection.h"
 #include "protobuf/veinsgym.pb.h"
 #include "straight/TaskMsg_m.h"
+#include "straight/TaskServer.h"
 
 class GymOffloader : public omnetpp::cSimpleModule {
   public:
@@ -42,11 +43,23 @@ class GymOffloader : public omnetpp::cSimpleModule {
 
     // helpers
   veins::TraCIMobility* getVehicleMobility(const std::string& id) const;
-  std::array<double, 7> computeObservation() const; // [speed, d0,d1,d2, bw0,bw1,bw2]
+  std::array<double, 11> computeObservation() const; // [speed, d0,d1,d2, inputMB, busy0,busy1,busy2, ul0,ul1,ul2]
   double computeReward() const; // returns lastReward and resets to 0
-  veinsgym::proto::Request serializeObservation(const std::array<double, 7>& observation, double reward) const;
+  veinsgym::proto::Request serializeObservation(const std::array<double, 11>& observation, double reward) const;
     double estimateBandwidth(double distance) const;   // simple path-loss like estimate
 
     // fetch RSU positions from their mobility modules
     std::array<veins::Coord, 3> getRsuPositions() const;
+
+  // pending task (decided by agent action)
+  bool hasPendingTask = false;
+  int64_t pendingInputBytes = 0;
+  int64_t pendingOutputBytes = 0;
+  int64_t pendingCycles = 0;
+
+    // PHY helpers (match TaskServer calculations)
+    static double dbmToW(double dbm);
+    static double noisePowerW(double bandwidthHz, double noiseFigureDb);
+    static double friisPathLossLin(double freqHz, double distanceMeters);
+    static double shannonRate(double bandwidthHz, double snrLin);
 };

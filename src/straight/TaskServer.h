@@ -19,6 +19,11 @@ class TaskServer : public omnetpp::cSimpleModule {
     void initialize() override;
     void handleMessage(omnetpp::cMessage* msg) override;
 
+    // Observability for offloader
+    int getUlActive() const { return ulActive; }
+    int getDlActive() const { return dlActive; }
+    int getActiveTasks() const { return (int)tasks.size(); }
+
   private:
     // Parameters
     double bandwidthHz;     // total system bandwidth per RSU
