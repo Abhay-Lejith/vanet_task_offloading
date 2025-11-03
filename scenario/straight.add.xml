@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <additional xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://sumo.dlr.de/xsd/additional_file.xsd">
-    <poi id="rsu0" x="200.0" y="0.0" color="255,0,0" layer="10" type="RSU"/>
-    <poi id="rsu1" x="500.0" y="0.0" color="255,0,0" layer="10" type="RSU"/>
-    <poi id="rsu2" x="800.0" y="0.0" color="255,0,0" layer="10" type="RSU"/>
-    <!-- You can change color or add imgFile/angle if desired -->
+    <!-- RSU points of interest for SUMO-GUI. To show a custom icon instead of a red dot,
+         put an image file at scenario/icons/rsu.png (or adjust the path below) and set width/height in pixels. -->
+    <poi id="rsu0" x="300.0" y="10.0" color="255,0,0" layer="10" type="RSU" imgFile="icons/rsu.png" width="13" height="13"/>
+    <poi id="rsu1" x="800.0" y="10.0" color="255,0,0" layer="10" type="RSU" imgFile="icons/rsu.png" width="13" height="13"/>
+    <poi id="rsu2" x="1300.0" y="10.0" color="255,0,0" layer="10" type="RSU" imgFile="icons/rsu.png" width="13" height="13"/>
+    <!-- You can also add angle="<deg>" to rotate the icon and adjust layer for z-ordering. -->
 </additional>

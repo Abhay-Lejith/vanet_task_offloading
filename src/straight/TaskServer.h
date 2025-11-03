@@ -19,7 +19,6 @@ class TaskServer : public omnetpp::cSimpleModule {
     void initialize() override;
     void handleMessage(omnetpp::cMessage* msg) override;
 
-    // Observability for offloader
     int getUlActive() const { return ulActive; }
     int getDlActive() const { return dlActive; }
     int getActiveTasks() const { return (int)tasks.size(); }
@@ -33,11 +32,8 @@ class TaskServer : public omnetpp::cSimpleModule {
     double txPowerDbmRsu;     // DL Tx power
     double cpuFreqRsu;      // RSU CPU cycles per second
 
-    // Active flow counters for bandwidth sharing
     int ulActive = 0;
     int dlActive = 0;
-
-    // Internal message kinds
     enum Kind { UL_COMPLETE = 1001, CPU_COMPLETE = 1002, DL_COMPLETE = 1003 };
 
     struct TaskCtx {
@@ -51,7 +47,7 @@ class TaskServer : public omnetpp::cSimpleModule {
         omnetpp::simtime_t startTime;
     };
 
-    std::unordered_map<omnetpp::cMessage*, TaskCtx> tasks; // keyed by current event
+    std::unordered_map<omnetpp::cMessage*, TaskCtx> tasks; 
 
     // Helpers
     veins::BaseMobility* getRsuMobility() const;
