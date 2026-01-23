@@ -13,12 +13,12 @@ using veins::TraCIScenarioManagerAccess;
 Define_Module(GymOffloader);
 
 GymOffloader::~GymOffloader() {
-
+    // Ensure timer is cleaned up
     if (tick) {
         try { cancelAndDelete(tick); } catch (...) {}
         tick = nullptr;
     }
-
+    // Best-effort shutdown; swallow any ZMQ errors during teardown
     if (gymCon && !sentShutdown) {
         try {
             veinsgym::proto::Request request;
@@ -43,6 +43,7 @@ void GymOffloader::initialize() {
     taskMaxMB = par("taskMaxMB").doubleValue();
     outputFactor = par("outputFactor").doubleValue();
 
+    // find global GymConnection module (existing serpentine.GymConnection)
     gymCon = veins::FindModule<GymConnection*>::findGlobalModule();
     if (!gymCon) throw cRuntimeError("GymConnection module not found. Ensure 'gym_connection: GymConnection {}' exists in the network.");
 
@@ -51,12 +52,12 @@ void GymOffloader::initialize() {
 }
 
 void GymOffloader::finish() {
-
+    // Cancel future polling first
     if (tick) {
         try { cancelAndDelete(tick); } catch (...) {}
         tick = nullptr;
     }
-
+    // Send a single Shutdown while sockets are still likely valid
     if (gymCon && !sentShutdown) {
         try {
             veinsgym::proto::Request request;
@@ -73,12 +74,13 @@ void GymOffloader::finish() {
 }
 
 void GymOffloader::handleMessage(cMessage* msg) {
-
+    // Handle task completion messages from RSU or local processing
     if (auto* done = dynamic_cast<straight::TaskDone*>(msg)) {
         busy = false;
         lastReward = 1.0 / std::max(1e-12, (simTime() - taskStart).dbl());
         EV_INFO << "Task completed for vehicle '" << done->getVehicleId() << "' totalTime=" << (simTime() - taskStart) << "s, reward=" << lastReward << "\n";
         delete done;
+        // Reschedule next tick (cancel if already scheduled)
         if (tick) cancelEvent(tick);
         scheduleAt(simTime() + pollInterval, tick);
         return;
@@ -95,6 +97,7 @@ void GymOffloader::handleMessage(cMessage* msg) {
     }
     if (msg != tick) { delete msg; return; }
 
+    // Ensure TraCI and scenario objects are ready before computing observations
     auto manager = TraCIScenarioManagerAccess().get();
     if (!manager || !manager->isUsable()) {
         EV_INFO << "TraCI manager not ready yet, retrying in " << pollInterval << "s\n";
@@ -109,6 +112,7 @@ void GymOffloader::handleMessage(cMessage* msg) {
         return;
     }
 
+    // Check RSU mobility modules exist
     for (int i = 0; i < 3; ++i) {
         std::stringstream path;
         path << "rsu[" << i << "].mobility";
@@ -118,6 +122,15 @@ void GymOffloader::handleMessage(cMessage* msg) {
             scheduleAt(simTime() + pollInterval, tick);
             return;
         }
+    }
+
+    // If a task is in progress, do NOT communicate with the agent.
+    // This ensures env.step(action) only returns once the task completes
+    // and the reward for that action is available.
+    if (busy) {
+        EV_INFO << "Task in progress; deferring agent communication until completion" << "\n";
+        scheduleAt(simTime() + pollInterval, tick);
+        return;
     }
 
     if (!busy && !hasPendingTask) {
@@ -135,11 +148,13 @@ void GymOffloader::handleMessage(cMessage* msg) {
     try {
         obs = computeObservation();
     } catch (const cRuntimeError& e) {
+        // Likely TraCI has not yet created the managed hosts/RSUs; try again shortly
         EV_WARN << "Offloader not ready yet (" << e.what() << "), retrying in " << pollInterval << "s\n";
         scheduleAt(simTime() + pollInterval, tick);
         return;
     }
 
+    // Validate observation contains only finite numbers to satisfy Gym Box.contains
     for (double v : obs) {
         if (!std::isfinite(v)) {
             EV_WARN << "Computed observation contains non-finite value (" << v << "), retrying in " << pollInterval << "s\n";
@@ -150,6 +165,7 @@ void GymOffloader::handleMessage(cMessage* msg) {
 
     double reward = computeReward();
 
+    // Log observation being sent to the agent (compact formatting)
     {
         std::ostringstream os;
         os.setf(std::ios::fixed);
@@ -165,11 +181,13 @@ void GymOffloader::handleMessage(cMessage* msg) {
     int action = reply.action().discrete().value();
     EV_INFO << "RL action received: " << action << " (0=no offload, 1=RSU0, 2=RSU1, 3=RSU2)\n";
 
+    // If not currently processing a task but have a pending one, execute based on action
     if (!busy && hasPendingTask) {
         taskStart = simTime();
         busy = true;
 
         if (action == 0) {
+            // Local processing for pending task
             double t_cpu = (double)pendingCycles / cpuFreqVehicle;
             cMessage* localDone = new cMessage("localDone");
             scheduleAt(simTime() + t_cpu, localDone);
@@ -191,9 +209,12 @@ void GymOffloader::handleMessage(cMessage* msg) {
                 EV_INFO << "Offloading to RSU[" << rsuIdx << "]: input=" << pendingInputBytes << "B output=" << pendingOutputBytes << "B cycles=" << pendingCycles << "\n";
             }
         }
+        // consume pending
         hasPendingTask = false;
     }
 
+    // While the task is running, we avoid further agent communications.
+    // The next communication (and reward delivery) will occur after completion.
     scheduleAt(simTime() + pollInterval, tick);
 }
 
@@ -223,19 +244,22 @@ std::array<veins::Coord, 3> GymOffloader::getRsuPositions() const {
 }
 
 std::array<double, 11> GymOffloader::computeObservation() const {
-
+    // get ego vehicle mobility
     auto* ego = getVehicleMobility(vehicleId);
     const auto egoPos = ego->getPositionAt(simTime());
-    const double speed = ego->getSpeed(); 
+    const double speed = ego->getSpeed(); // m/s
 
+    // distances to three RSUs
     auto rsuPos = getRsuPositions();
     std::array<double, 3> d{};
     for (int i = 0; i < 3; ++i) {
         d[i] = (egoPos - rsuPos[i]).length();
     }
 
+    // task feature: input size [MB]
     double inputMB = hasPendingTask ? (double)pendingInputBytes / 1e6 : 0.0;
 
+    // RSU busy flags and UL rates (Mbps) accounting for sharing if we start a new UL now)
     std::array<double, 3> busy{};
     std::array<double, 3> ulMbps{};
     for (int i = 0; i < 3; ++i) {
@@ -245,8 +269,10 @@ std::array<double, 11> GymOffloader::computeObservation() const {
         auto* server = dynamic_cast<TaskServer*>(m);
         if (!server) throw cRuntimeError("TaskServer not found at %s", serverPath.str().c_str());
 
+        // Busy if any active task exists (UL/CPU/DL)
         busy[i] = server->getActiveTasks() > 0 ? 1.0 : 0.0;
 
+        // Compute expected UL rate if a new UL starts now
         double bandwidthHz = server->par("bandwidthHz").doubleValue();
         double carrierHz = server->par("carrierHz").doubleValue();
         double noiseFigureDb = server->par("noiseFigureDb").doubleValue();
@@ -259,7 +285,7 @@ std::array<double, 11> GymOffloader::computeObservation() const {
         double N = noisePowerW(Beff, noiseFigureDb);
         double Pr = Pt / L;
         double snr = Pr / std::max(N, 1e-18);
-        double R_ul = shannonRate(Beff, snr);
+        double R_ul = shannonRate(Beff, snr); // bits/s
         ulMbps[i] = std::max(0.0, R_ul / 1e6);
     }
 
@@ -267,13 +293,16 @@ std::array<double, 11> GymOffloader::computeObservation() const {
 }
 
 double GymOffloader::estimateBandwidth(double distance) const {
-    const double base = 6.0; 
-    const double scale = 300.0;
+    // Rough placeholder: base 6 Mbps with exponential decay over 300 m scale
+    const double base = 6.0; // Mbps
+    const double scale = 300.0; // meters
     double val = base * std::exp(-distance / scale);
+    // clamp to small floor
     return std::max(0.05, val);
 }
 
 double GymOffloader::computeReward() const {
+    // Return lastReward once, then reset to 0 for subsequent steps
     double r = lastReward;
     const_cast<GymOffloader*>(this)->lastReward = 0.0;
     return r;
@@ -290,6 +319,7 @@ veinsgym::proto::Request GymOffloader::serializeObservation(const std::array<dou
     return request;
 }
 
+// Helpers duplicated from TaskServer to keep consistent PHY math
 double GymOffloader::dbmToW(double dbm) { return std::pow(10.0, dbm / 10.0) / 1000.0; }
 double GymOffloader::noisePowerW(double bandwidthHz, double noiseFigureDb) {
     const double N0_mW_per_Hz = std::pow(10.0, -174.0 / 10.0);
