@@ -177,8 +177,19 @@ void GymOffloader::handleMessage(cMessage* msg) {
     }
 
     auto request = serializeObservation(obs, reward);
-    auto reply = gymCon->communicate(request);
-    int action = reply.action().discrete().value();
+    int action = 0;
+    try {
+        auto reply = gymCon->communicate(request);
+        action = reply.action().discrete().value();
+    } catch (const std::exception& e) {
+        EV_WARN << "Gym communicate failed (" << e.what() << "), will retry next tick\n";
+        scheduleAt(simTime() + pollInterval, tick);
+        return;
+    } catch (...) {
+        EV_WARN << "Gym communicate failed with unknown error, will retry next tick\n";
+        scheduleAt(simTime() + pollInterval, tick);
+        return;
+    }
     EV_INFO << "RL action received: " << action << " (0=no offload, 1=RSU0, 2=RSU1, 3=RSU2)\n";
 
     // If not currently processing a task but have a pending one, execute based on action
