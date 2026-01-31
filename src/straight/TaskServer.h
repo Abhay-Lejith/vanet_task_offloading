@@ -38,6 +38,13 @@ class TaskServer : public omnetpp::cSimpleModule {
     bool enableExternalBusy = false;
     double busyOnMean = 0.0;   // mean duration of busy ON state (s)
     double busyOffMean = 0.0;  // mean duration of busy OFF state (s)
+    
+    // Energy parameters
+    double cpuPowerRsu;        // RSU CPU power (W)
+    double idlePowerRsu;       // RSU idle power (W)
+    double rxPowerRsu;         // RSU receive power (W)
+    double staticEnergyPerTask; // Fixed overhead per task (J)
+    double totalEnergyConsumed = 0.0; // Cumulative energy tracking (J)
 
     int ulActive = 0;
     int dlActive = 0;
@@ -52,6 +59,15 @@ class TaskServer : public omnetpp::cSimpleModule {
         omnetpp::cMessage* cpuEvt = nullptr;
         omnetpp::cMessage* dlEvt = nullptr;
         omnetpp::simtime_t startTime;
+        omnetpp::simtime_t ulStartTime;
+        omnetpp::simtime_t cpuStartTime;
+        omnetpp::simtime_t dlStartTime;
+        
+        // Energy metrics
+        double uplinkEnergy = 0.0;
+        double computeEnergy = 0.0;
+        double downlinkEnergy = 0.0;
+        double totalEnergy = 0.0;
     };
 
     std::unordered_map<omnetpp::cMessage*, TaskCtx> tasks; 

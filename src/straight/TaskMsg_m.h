@@ -1,5 +1,5 @@
 //
-// Generated file, do not edit! Created by nedtool 5.7 from straight/TaskMsg.msg.
+// Generated file, do not edit! Created by nedtool 5.7 from TaskMsg.msg.
 //
 
 #ifndef __STRAIGHT_TASKMSG_M_H
@@ -20,7 +20,7 @@
 namespace straight {
 
 /**
- * Class generated from <tt>straight/TaskMsg.msg:4</tt> by nedtool.
+ * Class generated from <tt>TaskMsg.msg:4</tt> by nedtool.
  * <pre>
  * // Message representing a task offload request from a vehicle to an RSU
  * message TaskRequest
@@ -71,7 +71,7 @@ inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskRequest& obj) {ob
 inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskRequest& obj) {obj.parsimUnpack(b);}
 
 /**
- * Class generated from <tt>straight/TaskMsg.msg:12</tt> by nedtool.
+ * Class generated from <tt>TaskMsg.msg:12</tt> by nedtool.
  * <pre>
  * // Message representing task completion notification back to the vehicle
  * message TaskDone
@@ -80,6 +80,12 @@ inline void doParsimUnpacking(omnetpp::cCommBuffer *b, TaskRequest& obj) {obj.pa
  *     int64 inputBytes;
  *     int64 outputBytes;
  *     double totalTime;   // total end-to-end time experienced for this task (s)
+ * 
+ *     // Energy metrics
+ *     double rsuUplinkEnergy;    // RSU energy for receiving (J)
+ *     double rsuComputeEnergy;   // RSU energy for computing (J)
+ *     double rsuDownlinkEnergy;  // RSU energy for transmitting (J)
+ *     double rsuTotalEnergy;     // Total RSU energy (J)
  * }
  * </pre>
  */
@@ -90,6 +96,10 @@ class TaskDone : public ::omnetpp::cMessage
     int64_t inputBytes;
     int64_t outputBytes;
     double totalTime;
+    double rsuUplinkEnergy;
+    double rsuComputeEnergy;
+    double rsuDownlinkEnergy;
+    double rsuTotalEnergy;
 
   private:
     void copy(const TaskDone& other);
@@ -116,6 +126,14 @@ class TaskDone : public ::omnetpp::cMessage
     virtual void setOutputBytes(int64_t outputBytes);
     virtual double getTotalTime() const;
     virtual void setTotalTime(double totalTime);
+    virtual double getRsuUplinkEnergy() const;
+    virtual void setRsuUplinkEnergy(double rsuUplinkEnergy);
+    virtual double getRsuComputeEnergy() const;
+    virtual void setRsuComputeEnergy(double rsuComputeEnergy);
+    virtual double getRsuDownlinkEnergy() const;
+    virtual void setRsuDownlinkEnergy(double rsuDownlinkEnergy);
+    virtual double getRsuTotalEnergy() const;
+    virtual void setRsuTotalEnergy(double rsuTotalEnergy);
 };
 
 inline void doParsimPacking(omnetpp::cCommBuffer *b, const TaskDone& obj) {obj.parsimPack(b);}

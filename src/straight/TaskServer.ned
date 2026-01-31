@@ -13,6 +13,12 @@ simple TaskServer
         bool enableExternalBusy = default(true);         // enable stochastic busy periods
         double busyOnMean @unit(s) = default(3s);        // mean busy ON duration
         double busyOffMean @unit(s) = default(7s);       // mean busy OFF duration
+        
+        // Energy parameters
+        double cpuPowerRsu @unit(W) = default(100.0W);      // RSU CPU power consumption
+        double idlePowerRsu @unit(W) = default(20.0W);      // RSU idle power
+        double rxPowerRsu @unit(W) = default(5.0W);         // RSU receive power
+        double staticEnergyPerTask @unit(J) = default(0.1J); // Fixed overhead per task
     gates:
         input in;
         output out;

@@ -14,3 +14,7 @@ scenario/results/*
 .snakemake
 .cmdenv-log
 .qtenvrc
+
+/venv
+/examples/models
+/examples/__pycache__

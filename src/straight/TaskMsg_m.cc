@@ -1,5 +1,5 @@
 //
-// Generated file, do not edit! Created by nedtool 5.7 from straight/TaskMsg.msg.
+// Generated file, do not edit! Created by nedtool 5.7 from TaskMsg.msg.
 //
 
 // Disable warnings about unused variables, empty switch stmts, etc:
@@ -524,6 +524,10 @@ TaskDone::TaskDone(const char *name, short kind) : ::omnetpp::cMessage(name,kind
     this->inputBytes = 0;
     this->outputBytes = 0;
     this->totalTime = 0;
+    this->rsuUplinkEnergy = 0;
+    this->rsuComputeEnergy = 0;
+    this->rsuDownlinkEnergy = 0;
+    this->rsuTotalEnergy = 0;
 }
 
 TaskDone::TaskDone(const TaskDone& other) : ::omnetpp::cMessage(other)
@@ -549,6 +553,10 @@ void TaskDone::copy(const TaskDone& other)
     this->inputBytes = other.inputBytes;
     this->outputBytes = other.outputBytes;
     this->totalTime = other.totalTime;
+    this->rsuUplinkEnergy = other.rsuUplinkEnergy;
+    this->rsuComputeEnergy = other.rsuComputeEnergy;
+    this->rsuDownlinkEnergy = other.rsuDownlinkEnergy;
+    this->rsuTotalEnergy = other.rsuTotalEnergy;
 }
 
 void TaskDone::parsimPack(omnetpp::cCommBuffer *b) const
@@ -558,6 +566,10 @@ void TaskDone::parsimPack(omnetpp::cCommBuffer *b) const
     doParsimPacking(b,this->inputBytes);
     doParsimPacking(b,this->outputBytes);
     doParsimPacking(b,this->totalTime);
+    doParsimPacking(b,this->rsuUplinkEnergy);
+    doParsimPacking(b,this->rsuComputeEnergy);
+    doParsimPacking(b,this->rsuDownlinkEnergy);
+    doParsimPacking(b,this->rsuTotalEnergy);
 }
 
 void TaskDone::parsimUnpack(omnetpp::cCommBuffer *b)
@@ -567,6 +579,10 @@ void TaskDone::parsimUnpack(omnetpp::cCommBuffer *b)
     doParsimUnpacking(b,this->inputBytes);
     doParsimUnpacking(b,this->outputBytes);
     doParsimUnpacking(b,this->totalTime);
+    doParsimUnpacking(b,this->rsuUplinkEnergy);
+    doParsimUnpacking(b,this->rsuComputeEnergy);
+    doParsimUnpacking(b,this->rsuDownlinkEnergy);
+    doParsimUnpacking(b,this->rsuTotalEnergy);
 }
 
 const char * TaskDone::getVehicleId() const
@@ -607,6 +623,46 @@ double TaskDone::getTotalTime() const
 void TaskDone::setTotalTime(double totalTime)
 {
     this->totalTime = totalTime;
+}
+
+double TaskDone::getRsuUplinkEnergy() const
+{
+    return this->rsuUplinkEnergy;
+}
+
+void TaskDone::setRsuUplinkEnergy(double rsuUplinkEnergy)
+{
+    this->rsuUplinkEnergy = rsuUplinkEnergy;
+}
+
+double TaskDone::getRsuComputeEnergy() const
+{
+    return this->rsuComputeEnergy;
+}
+
+void TaskDone::setRsuComputeEnergy(double rsuComputeEnergy)
+{
+    this->rsuComputeEnergy = rsuComputeEnergy;
+}
+
+double TaskDone::getRsuDownlinkEnergy() const
+{
+    return this->rsuDownlinkEnergy;
+}
+
+void TaskDone::setRsuDownlinkEnergy(double rsuDownlinkEnergy)
+{
+    this->rsuDownlinkEnergy = rsuDownlinkEnergy;
+}
+
+double TaskDone::getRsuTotalEnergy() const
+{
+    return this->rsuTotalEnergy;
+}
+
+void TaskDone::setRsuTotalEnergy(double rsuTotalEnergy)
+{
+    this->rsuTotalEnergy = rsuTotalEnergy;
 }
 
 class TaskDoneDescriptor : public omnetpp::cClassDescriptor
@@ -674,7 +730,7 @@ const char *TaskDoneDescriptor::getProperty(const char *propertyname) const
 int TaskDoneDescriptor::getFieldCount() const
 {
     omnetpp::cClassDescriptor *basedesc = getBaseClassDescriptor();
-    return basedesc ? 4+basedesc->getFieldCount() : 4;
+    return basedesc ? 8+basedesc->getFieldCount() : 8;
 }
 
 unsigned int TaskDoneDescriptor::getFieldTypeFlags(int field) const
@@ -690,8 +746,12 @@ unsigned int TaskDoneDescriptor::getFieldTypeFlags(int field) const
         FD_ISEDITABLE,
         FD_ISEDITABLE,
         FD_ISEDITABLE,
+        FD_ISEDITABLE,
+        FD_ISEDITABLE,
+        FD_ISEDITABLE,
+        FD_ISEDITABLE,
     };
-    return (field>=0 && field<4) ? fieldTypeFlags[field] : 0;
+    return (field>=0 && field<8) ? fieldTypeFlags[field] : 0;
 }
 
 const char *TaskDoneDescriptor::getFieldName(int field) const
@@ -707,8 +767,12 @@ const char *TaskDoneDescriptor::getFieldName(int field) const
         "inputBytes",
         "outputBytes",
         "totalTime",
+        "rsuUplinkEnergy",
+        "rsuComputeEnergy",
+        "rsuDownlinkEnergy",
+        "rsuTotalEnergy",
     };
-    return (field>=0 && field<4) ? fieldNames[field] : nullptr;
+    return (field>=0 && field<8) ? fieldNames[field] : nullptr;
 }
 
 int TaskDoneDescriptor::findField(const char *fieldName) const
@@ -719,6 +783,10 @@ int TaskDoneDescriptor::findField(const char *fieldName) const
     if (fieldName[0]=='i' && strcmp(fieldName, "inputBytes")==0) return base+1;
     if (fieldName[0]=='o' && strcmp(fieldName, "outputBytes")==0) return base+2;
     if (fieldName[0]=='t' && strcmp(fieldName, "totalTime")==0) return base+3;
+    if (fieldName[0]=='r' && strcmp(fieldName, "rsuUplinkEnergy")==0) return base+4;
+    if (fieldName[0]=='r' && strcmp(fieldName, "rsuComputeEnergy")==0) return base+5;
+    if (fieldName[0]=='r' && strcmp(fieldName, "rsuDownlinkEnergy")==0) return base+6;
+    if (fieldName[0]=='r' && strcmp(fieldName, "rsuTotalEnergy")==0) return base+7;
     return basedesc ? basedesc->findField(fieldName) : -1;
 }
 
@@ -735,8 +803,12 @@ const char *TaskDoneDescriptor::getFieldTypeString(int field) const
         "int64",
         "int64",
         "double",
+        "double",
+        "double",
+        "double",
+        "double",
     };
-    return (field>=0 && field<4) ? fieldTypeStrings[field] : nullptr;
+    return (field>=0 && field<8) ? fieldTypeStrings[field] : nullptr;
 }
 
 const char **TaskDoneDescriptor::getFieldPropertyNames(int field) const
@@ -807,6 +879,10 @@ std::string TaskDoneDescriptor::getFieldValueAsString(void *object, int field, i
         case 1: return int642string(pp->getInputBytes());
         case 2: return int642string(pp->getOutputBytes());
         case 3: return double2string(pp->getTotalTime());
+        case 4: return double2string(pp->getRsuUplinkEnergy());
+        case 5: return double2string(pp->getRsuComputeEnergy());
+        case 6: return double2string(pp->getRsuDownlinkEnergy());
+        case 7: return double2string(pp->getRsuTotalEnergy());
         default: return "";
     }
 }
@@ -825,6 +901,10 @@ bool TaskDoneDescriptor::setFieldValueAsString(void *object, int field, int i, c
         case 1: pp->setInputBytes(string2int64(value)); return true;
         case 2: pp->setOutputBytes(string2int64(value)); return true;
         case 3: pp->setTotalTime(string2double(value)); return true;
+        case 4: pp->setRsuUplinkEnergy(string2double(value)); return true;
+        case 5: pp->setRsuComputeEnergy(string2double(value)); return true;
+        case 6: pp->setRsuDownlinkEnergy(string2double(value)); return true;
+        case 7: pp->setRsuTotalEnergy(string2double(value)); return true;
         default: return false;
     }
 }

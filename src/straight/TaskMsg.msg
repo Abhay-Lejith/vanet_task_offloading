@@ -14,4 +14,10 @@ message TaskDone {
     int64 inputBytes;
     int64 outputBytes;
     double totalTime;   // total end-to-end time experienced for this task (s)
+    
+    // Energy metrics
+    double rsuUplinkEnergy;    // RSU energy for receiving (J)
+    double rsuComputeEnergy;   // RSU energy for computing (J)
+    double rsuDownlinkEnergy;  // RSU energy for transmitting (J)
+    double rsuTotalEnergy;     // Total RSU energy (J)
 }

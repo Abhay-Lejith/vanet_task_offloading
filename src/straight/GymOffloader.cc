@@ -42,6 +42,16 @@ void GymOffloader::initialize() {
     taskMinMB = par("taskMinMB").doubleValue();
     taskMaxMB = par("taskMaxMB").doubleValue();
     outputFactor = par("outputFactor").doubleValue();
+    
+    // Energy parameters
+    cpuPowerVehicle = par("cpuPowerVehicle").doubleValue();
+    txPowerDbmVehicle = par("txPowerDbmVehicle").doubleValue();
+    rxPowerVehicle = par("rxPowerVehicle").doubleValue();
+    batteryCapacity = par("batteryCapacity").doubleValue();
+    idlePowerVehicle = par("idlePowerVehicle").doubleValue();
+    rewardAlpha = par("rewardAlpha").doubleValue();
+    rewardBeta = par("rewardBeta").doubleValue();
+    remainingBattery = batteryCapacity;
 
     // find global GymConnection module (existing serpentine.GymConnection)
     gymCon = veins::FindModule<GymConnection*>::findGlobalModule();
@@ -77,8 +87,38 @@ void GymOffloader::handleMessage(cMessage* msg) {
     // Handle task completion messages from RSU or local processing
     if (auto* done = dynamic_cast<straight::TaskDone*>(msg)) {
         busy = false;
-        lastReward = 1.0 / std::max(1e-12, (simTime() - taskStart).dbl());
-        EV_INFO << "Task completed for vehicle '" << done->getVehicleId() << "' totalTime=" << (simTime() - taskStart) << "s, reward=" << lastReward << "\n";
+        lastTaskLatency = (simTime() - taskStart).dbl();
+        
+        // Calculate vehicle energy for offloading
+        double vehicleEnergy = 0.0;
+        if (lastAction > 0) {
+            // Vehicle energy = UL transmit + DL receive
+            int rsuIdx = lastAction - 1;
+            double distance = (getVehicleMobility(vehicleId)->getPositionAt(simTime()) - getRsuPositions()[rsuIdx]).length();
+            double txPower = dbmToW(txPowerDbmVehicle);
+            double t_ul = done->getTotalTime() * 0.4;  // Rough estimate: 40% of time in UL
+            double t_dl = done->getTotalTime() * 0.1;  // Rough estimate: 10% of time in DL
+            vehicleEnergy = txPower * t_ul + rxPowerVehicle * t_dl;
+        }
+        
+        // Total system energy = vehicle + RSU
+        double rsuEnergy = done->getRsuTotalEnergy();
+        lastTaskEnergy = vehicleEnergy + rsuEnergy;
+        
+        // Update battery and counters
+        remainingBattery -= vehicleEnergy;
+        totalEnergyConsumed += lastTaskEnergy;
+        taskCounter++;
+        
+        // Compute reward with energy consideration
+        double latencyScore = 1.0 / std::max(0.01, lastTaskLatency);
+        double energyScore = 1.0 / std::max(0.1, lastTaskEnergy);
+        lastReward = rewardAlpha * latencyScore + rewardBeta * energyScore;
+        
+        EV_INFO << "Task completed for vehicle '" << done->getVehicleId() 
+                << "' latency=" << lastTaskLatency << "s, energy=" << lastTaskEnergy 
+                << "J (vehicle=" << vehicleEnergy << "J, rsu=" << rsuEnergy 
+                << "J), reward=" << lastReward << "\n";
         delete done;
         // Reschedule next tick (cancel if already scheduled)
         if (tick) cancelEvent(tick);
@@ -88,8 +128,23 @@ void GymOffloader::handleMessage(cMessage* msg) {
     if (msg->isSelfMessage() && msg != tick) {
         // Local processing done
         busy = false;
-        lastReward = 1.0 / std::max(1e-12, (simTime() - taskStart).dbl());
-        EV_INFO << "Local task completed totalTime=" << (simTime() - taskStart) << "s, reward=" << lastReward << "\n";
+        lastTaskLatency = (simTime() - taskStart).dbl();
+        
+        // Calculate local processing energy
+        lastTaskEnergy = cpuPowerVehicle * lastTaskLatency;
+        
+        // Update battery and counters
+        remainingBattery -= lastTaskEnergy;
+        totalEnergyConsumed += lastTaskEnergy;
+        taskCounter++;
+        
+        // Compute reward with energy consideration
+        double latencyScore = 1.0 / std::max(0.01, lastTaskLatency);
+        double energyScore = 1.0 / std::max(0.1, lastTaskEnergy);
+        lastReward = rewardAlpha * latencyScore + rewardBeta * energyScore;
+        
+        EV_INFO << "Local task completed latency=" << lastTaskLatency 
+                << "s, energy=" << lastTaskEnergy << "J, reward=" << lastReward << "\n";
         delete msg;
         if (tick) cancelEvent(tick);
         scheduleAt(simTime() + pollInterval, tick);
@@ -144,7 +199,7 @@ void GymOffloader::handleMessage(cMessage* msg) {
     }
 
     // Compute observation
-    std::array<double, 11> obs;
+    std::array<double, 14> obs;
     try {
         obs = computeObservation();
     } catch (const cRuntimeError& e) {
@@ -196,6 +251,7 @@ void GymOffloader::handleMessage(cMessage* msg) {
     if (!busy && hasPendingTask) {
         taskStart = simTime();
         busy = true;
+        lastAction = action;
 
         if (action == 0) {
             // Local processing for pending task
@@ -254,7 +310,7 @@ std::array<veins::Coord, 3> GymOffloader::getRsuPositions() const {
     return pos;
 }
 
-std::array<double, 11> GymOffloader::computeObservation() const {
+std::array<double, 14> GymOffloader::computeObservation() const {
     // get ego vehicle mobility
     auto* ego = getVehicleMobility(vehicleId);
     const auto egoPos = ego->getPositionAt(simTime());
@@ -300,8 +356,35 @@ std::array<double, 11> GymOffloader::computeObservation() const {
         double R_ul = shannonRate(Beff, snr); // bits/s
         ulMbps[i] = std::max(0.0, R_ul / 1e6);
     }
+    
+    // Battery level (normalized 0-1)
+    double batteryLevel = remainingBattery / batteryCapacity;
+    
+    // Estimate energy for local processing (normalized by dividing by 100)
+    double energyLocal = 0.0;
+    if (hasPendingTask) {
+        double t_local = (double)pendingCycles / cpuFreqVehicle;
+        energyLocal = cpuPowerVehicle * t_local / 100.0;  // Normalized
+    }
+    
+    // Estimate energy for offloading to nearest RSU (normalized)
+    double energyOffload = 0.0;
+    if (hasPendingTask) {
+        int nearestRsu = (d[0] < d[1] && d[0] < d[2]) ? 0 : (d[1] < d[2] ? 1 : 2);
+        double distance = d[nearestRsu];
+        double txPower = dbmToW(txPowerDbmVehicle);
+        double R_ul = ulMbps[nearestRsu] * 1e6;  // Convert Mbps to bps
+        if (R_ul > 0) {
+            double t_ul = (8.0 * pendingInputBytes) / R_ul;
+            double t_dl = (8.0 * pendingOutputBytes) / R_ul;
+            double vehicleEnergy = txPower * t_ul + rxPowerVehicle * t_dl;
+            double rsuEnergy = 100.0 * ((double)pendingCycles / 10e9);  // Rough RSU estimate
+            energyOffload = (vehicleEnergy + rsuEnergy) / 100.0;  // Normalized
+        }
+    }
 
-    return {speed, d[0], d[1], d[2], inputMB, busy[0], busy[1], busy[2], ulMbps[0], ulMbps[1], ulMbps[2]};
+    return {speed, d[0], d[1], d[2], inputMB, busy[0], busy[1], busy[2], 
+            ulMbps[0], ulMbps[1], ulMbps[2], batteryLevel, energyLocal, energyOffload};
 }
 
 double GymOffloader::estimateBandwidth(double distance) const {
@@ -320,7 +403,7 @@ double GymOffloader::computeReward() const {
     return r;
 }
 
-veinsgym::proto::Request GymOffloader::serializeObservation(const std::array<double, 11>& observation, double reward) const {
+veinsgym::proto::Request GymOffloader::serializeObservation(const std::array<double, 14>& observation, double reward) const {
     veinsgym::proto::Request request;
     request.set_id(1);
     auto* values = request.mutable_step()->mutable_observation()->mutable_box()->mutable_values();

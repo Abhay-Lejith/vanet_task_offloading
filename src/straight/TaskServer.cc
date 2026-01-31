@@ -19,6 +19,13 @@ void TaskServer::initialize() {
     enableExternalBusy = par("enableExternalBusy").boolValue();
     busyOnMean = par("busyOnMean").doubleValue();
     busyOffMean = par("busyOffMean").doubleValue();
+    
+    // Energy parameters
+    cpuPowerRsu = par("cpuPowerRsu").doubleValue();
+    idlePowerRsu = par("idlePowerRsu").doubleValue();
+    rxPowerRsu = par("rxPowerRsu").doubleValue();
+    staticEnergyPerTask = par("staticEnergyPerTask").doubleValue();
+    totalEnergyConsumed = 0.0;
 
     if (enableExternalBusy && (busyOnMean > 0.0 || busyOffMean > 0.0)) {
         busyEvt = new cMessage("busyToggle", BUSY_TOGGLE);
@@ -57,6 +64,7 @@ void TaskServer::handleMessage(cMessage* msg) {
         ctx.outputBytes = req->getOutputBytes();
         ctx.cycles = req->getCycles();
         ctx.startTime = simTime();
+        ctx.ulStartTime = simTime();
 
         double d = distanceToVehicle(ctx.vehicleId);
         double L = friisPathLossLin(carrierHz, d);
@@ -86,6 +94,11 @@ void TaskServer::handleMessage(cMessage* msg) {
     if (msg->getKind() == UL_COMPLETE) {
 
         if (ulActive > 0) ulActive--; 
+        
+        // Calculate uplink energy (RSU receiving)
+        double t_ul = (simTime() - ctx.ulStartTime).dbl();
+        ctx.uplinkEnergy = rxPowerRsu * t_ul;
+        ctx.cpuStartTime = simTime();
 
         // Either start CPU immediately or enqueue if external busy or CPU already busy
         tryStartCpu(std::move(ctx));
@@ -94,6 +107,11 @@ void TaskServer::handleMessage(cMessage* msg) {
         // CPU stage finished; mark CPU idle and maybe start next before DL
         cpuBusy = false;
         maybeStartNextCpu();
+        
+        // Calculate compute energy
+        double t_cpu = (simTime() - ctx.cpuStartTime).dbl();
+        ctx.computeEnergy = cpuPowerRsu * t_cpu;
+        ctx.dlStartTime = simTime();
 
         dlActive++;
         double d = distanceToVehicle(ctx.vehicleId);
@@ -112,12 +130,29 @@ void TaskServer::handleMessage(cMessage* msg) {
     }
     else if (msg->getKind() == DL_COMPLETE) {
         if (dlActive > 0) dlActive--; 
+        
+        // Calculate downlink energy (RSU transmitting)
+        double t_dl = (simTime() - ctx.dlStartTime).dbl();
+        double txPower = dbmToW(txPowerDbmRsu);
+        ctx.downlinkEnergy = txPower * t_dl;
+        
+        // Calculate total RSU energy for this task
+        ctx.totalEnergy = ctx.uplinkEnergy + ctx.computeEnergy + 
+                         ctx.downlinkEnergy + staticEnergyPerTask;
+        totalEnergyConsumed += ctx.totalEnergy;
 
-    auto* done = new straight::TaskDone();
+        auto* done = new straight::TaskDone();
         done->setVehicleId(ctx.vehicleId.c_str());
         done->setInputBytes(ctx.inputBytes);
         done->setOutputBytes(ctx.outputBytes);
         done->setTotalTime((simTime() - ctx.startTime).dbl());
+        
+        // Add energy metrics
+        done->setRsuUplinkEnergy(ctx.uplinkEnergy);
+        done->setRsuComputeEnergy(ctx.computeEnergy);
+        done->setRsuDownlinkEnergy(ctx.downlinkEnergy);
+        done->setRsuTotalEnergy(ctx.totalEnergy);
+        
         send(done, "out");
     }
 
@@ -129,6 +164,9 @@ void TaskServer::finish() {
         try { cancelAndDelete(busyEvt); } catch (...) {}
         busyEvt = nullptr;
     }
+    
+    // Record energy statistics
+    recordScalar("totalEnergyConsumed", totalEnergyConsumed);
 }
 
 veins::BaseMobility* TaskServer::getRsuMobility() const {
