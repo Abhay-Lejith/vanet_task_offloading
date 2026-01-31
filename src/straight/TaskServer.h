@@ -2,6 +2,7 @@
 
 #include <omnetpp.h>
 #include <unordered_map>
+#include <deque>
 #include <string>
 
 #include "veins/base/modules/BaseMobility.h"
@@ -17,11 +18,14 @@ class TaskServer : public omnetpp::cSimpleModule {
     ~TaskServer() override = default;
 
     void initialize() override;
+    void finish() override;
     void handleMessage(omnetpp::cMessage* msg) override;
 
     int getUlActive() const { return ulActive; }
     int getDlActive() const { return dlActive; }
     int getActiveTasks() const { return (int)tasks.size(); }
+    bool getExternallyBusy() const { return externalBusy; }
+    bool getCpuBusy() const { return cpuBusy; }
 
   private:
     // Parameters
@@ -31,10 +35,13 @@ class TaskServer : public omnetpp::cSimpleModule {
     double txPowerDbmVehicle; // UL Tx power
     double txPowerDbmRsu;     // DL Tx power
     double cpuFreqRsu;      // RSU CPU cycles per second
+    bool enableExternalBusy = false;
+    double busyOnMean = 0.0;   // mean duration of busy ON state (s)
+    double busyOffMean = 0.0;  // mean duration of busy OFF state (s)
 
     int ulActive = 0;
     int dlActive = 0;
-    enum Kind { UL_COMPLETE = 1001, CPU_COMPLETE = 1002, DL_COMPLETE = 1003 };
+    enum Kind { UL_COMPLETE = 1001, CPU_COMPLETE = 1002, DL_COMPLETE = 1003, BUSY_TOGGLE = 1100 };
 
     struct TaskCtx {
         std::string vehicleId;
@@ -48,6 +55,10 @@ class TaskServer : public omnetpp::cSimpleModule {
     };
 
     std::unordered_map<omnetpp::cMessage*, TaskCtx> tasks; 
+    std::deque<TaskCtx> cpuQueue;
+    bool cpuBusy = false;
+    bool externalBusy = false;
+    omnetpp::cMessage* busyEvt = nullptr;
 
     // Helpers
     veins::BaseMobility* getRsuMobility() const;
@@ -58,4 +69,6 @@ class TaskServer : public omnetpp::cSimpleModule {
     static double noisePowerW(double bandwidthHz, double noiseFigureDb);
     static double friisPathLossLin(double freqHz, double distanceMeters);
     static double shannonRate(double bandwidthHz, double snrLin);
+    void tryStartCpu(TaskCtx&& ctx);
+    void maybeStartNextCpu();
 };

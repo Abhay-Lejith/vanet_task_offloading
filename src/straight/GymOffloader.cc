@@ -280,8 +280,9 @@ std::array<double, 11> GymOffloader::computeObservation() const {
         auto* server = dynamic_cast<TaskServer*>(m);
         if (!server) throw cRuntimeError("TaskServer not found at %s", serverPath.str().c_str());
 
-        // Busy if any active task exists (UL/CPU/DL)
-        busy[i] = server->getActiveTasks() > 0 ? 1.0 : 0.0;
+        // Busy if external busy or any active task exists (UL/CPU/DL)
+        bool b = server->getExternallyBusy() || (server->getActiveTasks() > 0) || server->getCpuBusy();
+        busy[i] = b ? 1.0 : 0.0;
 
         // Compute expected UL rate if a new UL starts now
         double bandwidthHz = server->par("bandwidthHz").doubleValue();

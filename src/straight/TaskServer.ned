@@ -10,6 +10,9 @@ simple TaskServer
         double txPowerDbmVehicle = default(24);          // UL Tx power from vehicle
         double txPowerDbmRsu = default(24);              // DL Tx power from RSU
         double cpuFreqRsu @unit(Hz) = default(10e9Hz);   // RSU CPU frequency
+        bool enableExternalBusy = default(true);         // enable stochastic busy periods
+        double busyOnMean @unit(s) = default(3s);        // mean busy ON duration
+        double busyOffMean @unit(s) = default(7s);       // mean busy OFF duration
     gates:
         input in;
         output out;

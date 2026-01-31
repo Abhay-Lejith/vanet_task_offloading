@@ -16,9 +16,37 @@ void TaskServer::initialize() {
     txPowerDbmVehicle = par("txPowerDbmVehicle").doubleValue();
     txPowerDbmRsu = par("txPowerDbmRsu").doubleValue();
     cpuFreqRsu = par("cpuFreqRsu").doubleValue();
+    enableExternalBusy = par("enableExternalBusy").boolValue();
+    busyOnMean = par("busyOnMean").doubleValue();
+    busyOffMean = par("busyOffMean").doubleValue();
+
+    if (enableExternalBusy && (busyOnMean > 0.0 || busyOffMean > 0.0)) {
+        busyEvt = new cMessage("busyToggle", BUSY_TOGGLE);
+        // start from OFF state, schedule first ON
+        externalBusy = false;
+        simtime_t dt = busyOffMean > 0.0 ? exponential(busyOffMean) : 0.0;
+        scheduleAt(simTime() + dt, busyEvt);
+    }
 }
 
 void TaskServer::handleMessage(cMessage* msg) {
+    if (msg->isSelfMessage() && msg->getKind() == BUSY_TOGGLE) {
+        // Toggle external busy state and schedule next toggle
+        externalBusy = !externalBusy;
+        if (!externalBusy) {
+            // Just became idle: try to start next CPU task if any
+            maybeStartNextCpu();
+        }
+        simtime_t dt;
+        if (externalBusy) {
+            dt = busyOnMean > 0.0 ? exponential(busyOnMean) : 0.0;
+        } else {
+            dt = busyOffMean > 0.0 ? exponential(busyOffMean) : 0.0;
+        }
+        scheduleAt(simTime() + dt, msg);
+        return;
+    }
+
     if (auto* req = dynamic_cast<straight::TaskRequest*>(msg)) {
 
         ulActive++;
@@ -59,12 +87,14 @@ void TaskServer::handleMessage(cMessage* msg) {
 
         if (ulActive > 0) ulActive--; 
 
-        double t_cpu = (double)ctx.cycles / cpuFreqRsu;
-        ctx.cpuEvt = new cMessage("cpuComplete", CPU_COMPLETE);
-        tasks[ctx.cpuEvt] = ctx;
-        scheduleAt(simTime() + t_cpu, ctx.cpuEvt);
+        // Either start CPU immediately or enqueue if external busy or CPU already busy
+        tryStartCpu(std::move(ctx));
     }
     else if (msg->getKind() == CPU_COMPLETE) {
+        // CPU stage finished; mark CPU idle and maybe start next before DL
+        cpuBusy = false;
+        maybeStartNextCpu();
+
         dlActive++;
         double d = distanceToVehicle(ctx.vehicleId);
         double L = friisPathLossLin(carrierHz, d);
@@ -92,6 +122,13 @@ void TaskServer::handleMessage(cMessage* msg) {
     }
 
     delete msg;
+}
+
+void TaskServer::finish() {
+    if (busyEvt) {
+        try { cancelAndDelete(busyEvt); } catch (...) {}
+        busyEvt = nullptr;
+    }
 }
 
 veins::BaseMobility* TaskServer::getRsuMobility() const {
@@ -141,4 +178,28 @@ double TaskServer::friisPathLossLin(double freqHz_, double dMeters) {
 
 double TaskServer::shannonRate(double bandwidthHz_, double snrLin_) {
     return bandwidthHz_ * std::log2(1.0 + std::max(0.0, snrLin_));
+}
+
+void TaskServer::tryStartCpu(TaskCtx&& ctx) {
+    if (externalBusy || cpuBusy) {
+        cpuQueue.emplace_back(std::move(ctx));
+        return;
+    }
+    cpuBusy = true;
+    double t_cpu = (double)ctx.cycles / cpuFreqRsu;
+    ctx.cpuEvt = new cMessage("cpuComplete", CPU_COMPLETE);
+    tasks[ctx.cpuEvt] = ctx;
+    scheduleAt(simTime() + t_cpu, ctx.cpuEvt);
+}
+
+void TaskServer::maybeStartNextCpu() {
+    if (cpuBusy || externalBusy) return;
+    if (cpuQueue.empty()) return;
+    TaskCtx ctx = std::move(cpuQueue.front());
+    cpuQueue.pop_front();
+    cpuBusy = true;
+    double t_cpu = (double)ctx.cycles / cpuFreqRsu;
+    ctx.cpuEvt = new cMessage("cpuComplete", CPU_COMPLETE);
+    tasks[ctx.cpuEvt] = ctx;
+    scheduleAt(simTime() + t_cpu, ctx.cpuEvt);
 }
