@@ -48,7 +48,7 @@ def register_env():
     )
 
 class Policy(nn.Module):
-    def __init__(self, obs_dim=11, n_actions=4):
+    def __init__(self, obs_dim=14, n_actions=4):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(obs_dim, 64), nn.ReLU(),
@@ -60,7 +60,7 @@ class Policy(nn.Module):
         return self.net(x)
 
 def preprocess_obs(obs):
-    # obs = [speed, d0, d1, d2, taskMB, busy0, busy1, busy2, ul0, ul1, ul2]
+    # obs = [speed, d0, d1, d2, taskMB, busy0, busy1, busy2, ul0, ul1, ul2, battery, energyLocal, energyOffload]
     x = np.asarray(obs, dtype=np.float32).copy()
     # Simple scaling to reasonable ranges
     x[0] /= 30.0       # speed m/s -> ~0..1
@@ -68,6 +68,8 @@ def preprocess_obs(obs):
     x[4] /= 20.0       # task MB -> 0..1
     # busy flags are already 0/1
     x[8:11] /= 50.0    # UL Mbps -> 0..~1
+    # battery already normalized 0-1
+    # energy estimates already normalized (divided by 100 in C++)
     return x
 
 
@@ -93,7 +95,7 @@ def main():
     env = gym.make("veins-straight-v1")
 
     device = torch.device("cpu")
-    policy = Policy(obs_dim=11, n_actions=4).to(device)
+    policy = Policy(obs_dim=14, n_actions=4).to(device)
     opt = optim.Adam(policy.parameters(), lr=args.lr)
 
     obs = env.reset()

@@ -2,8 +2,8 @@
 """
 Nearest-free RSU baseline agent: offloads to the nearest RSU that is not busy.
 If all RSUs are busy, defaults to local (action=0).
-Observation layout (11-D):
-[speed, d0, d1, d2, taskSizeMB, rsu0Busy, rsu1Busy, rsu2Busy, ul0Mbps, ul1Mbps, ul2Mbps]
+Observation layout (14-D):
+[speed, d0, d1, d2, taskSizeMB, rsu0Busy, rsu1Busy, rsu2Busy, ul0Mbps, ul1Mbps, ul2Mbps, battery, energyLocal, energyOffload]
 """
 import os
 import sys
@@ -31,8 +31,9 @@ def register_env(scenario_dir: str, config: str = "StraightRoad", run_veins: boo
 
 
 def pick_action(obs: np.ndarray) -> int:
-    # Unpack fields
-    speed, d0, d1, d2, task_mb, b0, b1, b2, ul0, ul1, ul2 = [float(x) for x in np.asarray(obs).tolist()]
+    # Unpack fields (14D observation)
+    obs_list = [float(x) for x in np.asarray(obs).tolist()]
+    speed, d0, d1, d2, task_mb, b0, b1, b2, ul0, ul1, ul2, battery, energy_local, energy_offload = obs_list[:14]
     distances = [d0, d1, d2]
     busy = [b0, b1, b2]
 
