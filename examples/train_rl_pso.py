@@ -26,6 +26,163 @@ import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 
+# -----------------------------
+# RL+PSO Hybrid Components
+# -----------------------------
+class PSOPlanner:
+    """Discrete-action PSO planner with an online surrogate fitness model.
+
+    - Searches over discrete actions (0..num_actions-1) using PSO where particle
+      positions are real-valued but rounded to nearest discrete action for eval.
+    - Fitness is predicted by a simple online linear model trained on
+      (obs, one-hot(action)) -> observed reward from the environment.
+    - RL agent outputs PSO hyperparameters (w, c1, c2) which adapt the search.
+    """
+
+    def __init__(self, num_actions: int = 4, max_samples: int = 2000, ridge_lambda: float = 1e-3):
+        self.num_actions = int(num_actions)
+        self.max_samples = int(max_samples)
+        self.ridge_lambda = float(ridge_lambda)
+        self.X = None  # shape (n, d)
+        self.y = None  # shape (n,)
+        self.w = None  # shape (d,)
+        self._feature_dim = None
+
+    def _featurize(self, obs: np.ndarray, action: int) -> np.ndarray:
+        obs = np.asarray(obs, dtype=np.float32).ravel()
+        if self._feature_dim is None:
+            self._feature_dim = obs.shape[0] + self.num_actions
+        a_oh = np.zeros((self.num_actions,), dtype=np.float32)
+        a_oh[int(action) % self.num_actions] = 1.0
+        return np.concatenate([obs, a_oh]).astype(np.float32)
+
+    def predict(self, obs: np.ndarray, action: int) -> float:
+        if self.w is None:
+            # cold start: prefer middle actions slightly to avoid bias
+            return 0.0
+        x = self._featurize(obs, action)
+        return float(np.dot(self.w, x))
+
+    def update(self, obs: np.ndarray, action: int, reward: float):
+        x = self._featurize(obs, action)
+        if self.X is None:
+            self.X = x[None, :]
+            self.y = np.array([float(reward)], dtype=np.float32)
+        else:
+            if self.X.shape[0] >= self.max_samples:
+                # FIFO buffer: drop oldest
+                self.X = np.concatenate([self.X[1:], x[None, :]], axis=0)
+                self.y = np.concatenate([self.y[1:], np.array([float(reward)], dtype=np.float32)], axis=0)
+            else:
+                self.X = np.concatenate([self.X, x[None, :]], axis=0)
+                self.y = np.concatenate([self.y, np.array([float(reward)], dtype=np.float32)], axis=0)
+        # Refit simple ridge each update (small d, cheap)
+        try:
+            n, d = self.X.shape
+            A = self.X.T @ self.X + self.ridge_lambda * np.eye(d, dtype=np.float32)
+            b = self.X.T @ self.y
+            self.w = np.linalg.solve(A, b)
+        except Exception:
+            # Fallback to lstsq if solve fails
+            self.w = np.linalg.lstsq(self.X, self.y, rcond=None)[0]
+
+    def plan(self, obs: np.ndarray, w: float, c1: float, c2: float, num_particles: int = 16, num_iters: int = 10) -> int:
+        # Initialize particles in continuous space [0, num_actions-1]
+        low, high = 0.0, float(self.num_actions - 1)
+        pos = np.random.uniform(low, high, size=(num_particles,)).astype(np.float32)
+        vel = np.zeros_like(pos)
+
+        pbest_pos = pos.copy()
+        pbest_fit = np.array([self.predict(obs, int(np.round(p))) for p in pos], dtype=np.float32)
+        gbest_idx = int(np.argmax(pbest_fit))
+        gbest_pos = float(pbest_pos[gbest_idx])
+        gbest_fit = float(pbest_fit[gbest_idx])
+
+        for _ in range(max(1, int(num_iters))):
+            # Velocity update
+            r1 = np.random.uniform(0.0, 1.0, size=(num_particles,)).astype(np.float32)
+            r2 = np.random.uniform(0.0, 1.0, size=(num_particles,)).astype(np.float32)
+            vel = (
+                w * vel
+                + c1 * r1 * (pbest_pos - pos)
+                + c2 * r2 * (gbest_pos - pos)
+            ).astype(np.float32)
+            # Position update with bounds
+            pos = np.clip(pos + vel, low, high)
+            # Evaluate
+            fit = np.array([self.predict(obs, int(np.round(p))) for p in pos], dtype=np.float32)
+            # Update personal bests
+            improved = fit > pbest_fit
+            pbest_pos[improved] = pos[improved]
+            pbest_fit[improved] = fit[improved]
+            # Update global best
+            j = int(np.argmax(pbest_fit))
+            if float(pbest_fit[j]) > gbest_fit:
+                gbest_fit = float(pbest_fit[j])
+                gbest_pos = float(pbest_pos[j])
+
+        best_action = int(np.round(np.clip(gbest_pos, low, high)))
+        return best_action
+
+
+class RLPSOWrapper(gym.Wrapper):
+    """Gym wrapper that converts RL actions (PSO hyperparameters) into PSO-driven
+    discrete offloading actions for the base environment.
+
+    - RL action space: Box(3) in [0, 1]^3 mapped to (w, c1, c2)
+      w in [0.2, 1.0], c1,c2 in [0.5, 2.5]
+    - Base env action: Discrete(num_actions) where num_actions is inferred (default 4).
+    - Reward to RL: the realized env reward achieved by PSO-selected action.
+    """
+
+    def __init__(self, env: gym.Env, num_actions: int = 4):
+        super().__init__(env)
+        from gym.spaces import Box
+        self.action_space = Box(low=np.zeros((3,), dtype=np.float32), high=np.ones((3,), dtype=np.float32), dtype=np.float32)
+        self.observation_space = env.observation_space
+        self.num_actions = int(num_actions)
+        self.planner = PSOPlanner(num_actions=self.num_actions)
+        self._last_obs = None
+
+    @staticmethod
+    def _map_params(a: np.ndarray) -> tuple:
+        a = np.asarray(a, dtype=np.float32).ravel()
+        if a.shape[0] < 3:
+            a = np.pad(a, (0, 3 - a.shape[0]))
+        # Map [0,1] -> ranges
+        w = 0.2 + float(np.clip(a[0], 0.0, 1.0)) * 0.8
+        c1 = 0.5 + float(np.clip(a[1], 0.0, 1.0)) * 2.0
+        c2 = 0.5 + float(np.clip(a[2], 0.0, 1.0)) * 2.0
+        return w, c1, c2
+
+    def reset(self, *args, **kwargs):
+        res = self.env.reset(*args, **kwargs)
+        if isinstance(res, tuple):
+            obs, info = res
+        else:
+            obs, info = res, {}
+        self._last_obs = obs
+        return obs, info
+
+    def step(self, action):
+        w, c1, c2 = self._map_params(action)
+        # Plan discrete offloading decision via PSO using current observation
+        discrete_action = self.planner.plan(self._last_obs, w=w, c1=c1, c2=c2)
+        out = self.env.step(int(discrete_action))
+        if isinstance(out, tuple) and len(out) == 5:
+            obs, reward, terminated, truncated, info = out
+        else:
+            # Backward compatibility
+            obs, reward, done, info = out
+            terminated, truncated = bool(done), False
+        # Update surrogate with realized reward
+        try:
+            self.planner.update(self._last_obs, int(discrete_action), float(reward))
+        except Exception:
+            pass
+        self._last_obs = obs
+        return obs, float(reward), bool(terminated), bool(truncated), info
+
 def source_bash_env(script_path: str):
     """Source a bash script in a subshell and import env vars back to Python."""
     cmd = f"bash -lc 'source {script_path} && env -0'"
@@ -55,9 +212,9 @@ def register_env():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train PPO on VeinsGym StraightRoad")
+    parser = argparse.ArgumentParser(description="Train RL_PSO on VeinsGym StraightRoad")
     parser.add_argument("--timesteps", type=int, default=20000, help="Total training timesteps")
-    parser.add_argument("--save-path", type=str, default="models/rl", help="Model save path (without .zip)")
+    parser.add_argument("--save-path", type=str, default="models/rl_pso", help="Model save path (without .zip)")
     parser.add_argument("--omnetpp-setenv", type=str, default=os.environ.get("OMNETPP_SETENV", "/home/abhay/omnetpp-5.7.1/setenv"), help="Path to OMNeT++ setenv script")
     args = parser.parse_args()
 
@@ -156,6 +313,9 @@ def main():
         env.action_space = Discrete(4)
     except Exception as e:
         print("Warning: failed to patch env spaces:", e)
+
+    # Wrap env with RL+PSO adapter: RL outputs (w,c1,c2), PSO picks discrete action
+    env = RLPSOWrapper(env, num_actions=4)
     # env = Monitor(env)
 
     # Build and train model
@@ -203,13 +363,15 @@ def main():
             eval_env.action_space = Discrete(4)
         except Exception:
             pass
+        # RL+PSO wrapper for evaluation
+        eval_env = RLPSOWrapper(eval_env, num_actions=4)
         obs, _ = eval_env.reset()
         rewards = []
         terminated, truncated = False, False
         steps = 0
         while not (terminated or truncated) and steps < 200:
             action, _ = model.predict(obs, deterministic=True)
-            step_out = eval_env.step(int(action))
+            step_out = eval_env.step(action)
             if isinstance(step_out, tuple) and len(step_out) == 5:
                 obs, reward, terminated, truncated, info = step_out
             else:
