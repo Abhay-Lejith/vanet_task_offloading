@@ -29,8 +29,8 @@ class GymOffloader : public omnetpp::cSimpleModule {
     double pollInterval = 0.1; 
     double cpuFreqVehicle = 0.6e9; 
     double cyclesPerByte = 1900.0;
-    double taskMinMB = 10.0;
-    double taskMaxMB = 20.0;
+    double taskMinMB = 1.0;
+    double taskMaxMB = 100.0;
     double outputFactor = 0.2;
 
     // state

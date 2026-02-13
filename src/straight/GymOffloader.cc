@@ -77,7 +77,7 @@ void GymOffloader::handleMessage(cMessage* msg) {
     // Handle task completion messages from RSU or local processing
     if (auto* done = dynamic_cast<straight::TaskDone*>(msg)) {
         busy = false;
-        lastReward = 1.0 / std::max(1e-12, (simTime() - taskStart).dbl());
+        lastReward = 10.0 / std::max(1e-12, (simTime() - taskStart).dbl());
         EV_INFO << "Task completed for vehicle '" << done->getVehicleId() << "' totalTime=" << (simTime() - taskStart) << "s, reward=" << lastReward << "\n";
         delete done;
         // Reschedule next tick (cancel if already scheduled)
@@ -88,7 +88,7 @@ void GymOffloader::handleMessage(cMessage* msg) {
     if (msg->isSelfMessage() && msg != tick) {
         // Local processing done
         busy = false;
-        lastReward = 1.0 / std::max(1e-12, (simTime() - taskStart).dbl());
+        lastReward = 10.0 / std::max(1e-12, (simTime() - taskStart).dbl());
         EV_INFO << "Local task completed totalTime=" << (simTime() - taskStart) << "s, reward=" << lastReward << "\n";
         delete msg;
         if (tick) cancelEvent(tick);
