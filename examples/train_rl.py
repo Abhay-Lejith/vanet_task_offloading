@@ -26,6 +26,8 @@ import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 
+import torch
+
 def source_bash_env(script_path: str):
     """Source a bash script in a subshell and import env vars back to Python."""
     cmd = f"bash -lc 'source {script_path} && env -0'"
@@ -158,19 +160,22 @@ def main():
         print("Warning: failed to patch env spaces:", e)
     # env = Monitor(env)
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print("Using device:", device)
+
     # Build and train model
     model = PPO(
         policy="MlpPolicy",
         env=env,
         verbose=1,
         seed=12345,
-        device="cpu",
+        device=device,
         n_steps=128,
         n_epochs=5,
         batch_size=32,
         gamma=0.5,
         # Small net for quick runs; adjust as needed
-        policy_kwargs={"net_arch": [64, 64]},
+        # policy_kwargs={"net_arch": [64, 64]},
     )
 
     try:

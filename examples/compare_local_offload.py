@@ -120,14 +120,14 @@ def expected_queue_delay_external_busy(busy_on_mean_s: float, busy_off_mean_s: f
 
 # Sweep points
 TASK_SIZES_MB: List[float] = [1, 10, 100, 1000]
-DISTANCES_M: List[float] = [100, 200, 300, 500, 1000]
+DISTANCES_M: List[float] = [100, 200, 300,400, 500, 1000]
 
 # Task model (matches `src/straight/GymOffloader.ned` defaults)
 CYCLES_PER_BYTE = 100.0
 OUTPUT_FACTOR = 0.2
 
 # CPU model
-CPU_VEH_HZ = 0.7e9
+CPU_VEH_HZ = 0.6e9
 CPU_RSU_HZ = 10e9
 
 # Link model (matches `src/straight/TaskServer.ned` defaults)
