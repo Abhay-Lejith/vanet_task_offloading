@@ -132,7 +132,7 @@ class RLPSOWrapper(gym.Wrapper):
     - RL action space: Box(3) in [0, 1]^3 mapped to (w, c1, c2)
       w in [0.2, 1.0], c1,c2 in [0.5, 2.5]
     - Base env action: Discrete(num_actions) where num_actions is inferred (default 4).
-    - Reward to RL: the realized env reward achieved by PSO-selected action.
+    - Reward to RL: equation-based reward computed from estimated completion time.
     """
 
     def __init__(self, env: gym.Env, num_actions: int = 4):
@@ -143,6 +143,15 @@ class RLPSOWrapper(gym.Wrapper):
         self.num_actions = int(num_actions)
         self.planner = PSOPlanner(num_actions=self.num_actions)
         self._last_obs = None
+
+        # Keep reward equations aligned with straight-scenario model defaults.
+        self.cycles_per_byte = 100.0
+        self.output_factor = 0.2
+        self.cpu_vehicle_hz = 0.6e9
+        self.cpu_rsu_hz = 10e9
+        self.busy_on_mean_s = 5.0
+        self.busy_off_mean_s = 5.0
+        self.reward_scale = 10.0
 
     @staticmethod
     def _map_params(a: np.ndarray) -> tuple:
@@ -164,17 +173,66 @@ class RLPSOWrapper(gym.Wrapper):
         self._last_obs = obs
         return obs, info
 
+    @staticmethod
+    def _expected_busy_wait_s(busy_on_mean_s: float, busy_off_mean_s: float) -> float:
+        # Expected residual wait in a two-state exponential ON/OFF process.
+        ton = max(0.0, float(busy_on_mean_s))
+        toff = max(0.0, float(busy_off_mean_s))
+        if ton <= 0.0 or (ton + toff) <= 0.0:
+            return 0.0
+        return (ton * ton) / (ton + toff)
+
+    def _equation_reward(self, obs: np.ndarray, discrete_action: int) -> float:
+        obs = np.asarray(obs, dtype=np.float32).ravel()
+        if obs.shape[0] < 11:
+            return 0.0
+
+        input_mb = float(max(0.0, obs[4]))
+        if input_mb <= 0.0:
+            return 0.0
+
+        input_bytes = input_mb * 1e6
+        output_bytes = self.output_factor * input_bytes
+        cycles = self.cycles_per_byte * input_bytes
+
+        if int(discrete_action) == 0:
+            total_time_s = cycles / max(self.cpu_vehicle_hz, 1e-9)
+        else:
+            rsu_idx = int(discrete_action) - 1
+            rsu_idx = int(np.clip(rsu_idx, 0, 2))
+            ul_mbps = float(max(1e-9, obs[8 + rsu_idx]))
+            rate_bps = ul_mbps * 1e6
+
+            t_ul = (8.0 * input_bytes) / max(rate_bps, 1e-9)
+            t_cpu = cycles / max(self.cpu_rsu_hz, 1e-9)
+            t_dl = (8.0 * output_bytes) / max(rate_bps, 1e-9)
+
+            # If RSU is currently busy, include expected residual queue delay.
+            is_busy = float(obs[5 + rsu_idx]) >= 0.5
+            t_queue = self._expected_busy_wait_s(self.busy_on_mean_s, self.busy_off_mean_s) if is_busy else 0.0
+            total_time_s = t_queue + t_ul + t_cpu + t_dl
+
+        return float(self.reward_scale / max(total_time_s, 1e-9))
+
     def step(self, action):
         w, c1, c2 = self._map_params(action)
         # Plan discrete offloading decision via PSO using current observation
         discrete_action = self.planner.plan(self._last_obs, w=w, c1=c1, c2=c2)
         out = self.env.step(int(discrete_action))
         if isinstance(out, tuple) and len(out) == 5:
-            obs, reward, terminated, truncated, info = out
+            obs, env_reward, terminated, truncated, info = out
         else:
             # Backward compatibility
-            obs, reward, done, info = out
+            obs, env_reward, done, info = out
             terminated, truncated = bool(done), False
+        reward = self._equation_reward(self._last_obs, int(discrete_action))
+        if info is None:
+            info = {}
+        else:
+            info = dict(info)
+        info["env_reward"] = float(env_reward)
+        info["equation_reward"] = float(reward)
+        info["pso_discrete_action"] = int(discrete_action)
         # Update surrogate with realized reward
         try:
             self.planner.update(self._last_obs, int(discrete_action), float(reward))
