@@ -110,15 +110,22 @@ void GymOffloader::handleMessage(cMessage* msg) {
         totalEnergyConsumed += lastTaskEnergy;
         taskCounter++;
         
-        // Compute reward with energy consideration
-        double latencyScore = 1.0 / std::max(0.01, lastTaskLatency);
-        double energyScore = 1.0 / std::max(0.1, lastTaskEnergy);
+        // Compute balanced reward: normalize both metrics to [0,1] then combine
+        // Latency normalized: lower latency → higher score
+        double maxLatency = 2.0;  // Typical max latency (s)
+        double latencyScore = std::max(0.0, 1.0 - (lastTaskLatency / maxLatency));
+        
+        // Energy normalized: lower energy → higher score
+        double maxEnergy = 50.0;  // Typical max energy per task (J)
+        double energyScore = std::max(0.0, 1.0 - (lastTaskEnergy / maxEnergy));
+        
+        // Balanced combination: equal weight by default
         lastReward = rewardAlpha * latencyScore + rewardBeta * energyScore;
         
         EV_INFO << "Task completed for vehicle '" << done->getVehicleId() 
-                << "' latency=" << lastTaskLatency << "s, energy=" << lastTaskEnergy 
-                << "J (vehicle=" << vehicleEnergy << "J, rsu=" << rsuEnergy 
-                << "J), reward=" << lastReward << "\n";
+                << "' latency=" << lastTaskLatency << "s (score=" << latencyScore 
+                << "), energy=" << lastTaskEnergy << "J (score=" << energyScore 
+                << "), reward=" << lastReward << "\n";
         delete done;
         // Reschedule next tick (cancel if already scheduled)
         if (tick) cancelEvent(tick);
@@ -138,13 +145,21 @@ void GymOffloader::handleMessage(cMessage* msg) {
         totalEnergyConsumed += lastTaskEnergy;
         taskCounter++;
         
-        // Compute reward with energy consideration
-        double latencyScore = 1.0 / std::max(0.01, lastTaskLatency);
-        double energyScore = 1.0 / std::max(0.1, lastTaskEnergy);
+        // Compute balanced reward: normalize both metrics to [0,1] then combine
+        // Latency normalized: lower latency → higher score
+        double maxLatency = 2.0;  // Typical max latency (s)
+        double latencyScore = std::max(0.0, 1.0 - (lastTaskLatency / maxLatency));
+        
+        // Energy normalized: lower energy → higher score
+        double maxEnergy = 50.0;  // Typical max energy per task (J)
+        double energyScore = std::max(0.0, 1.0 - (lastTaskEnergy / maxEnergy));
+        
+        // Balanced combination: equal weight by default
         lastReward = rewardAlpha * latencyScore + rewardBeta * energyScore;
         
         EV_INFO << "Local task completed latency=" << lastTaskLatency 
-                << "s, energy=" << lastTaskEnergy << "J, reward=" << lastReward << "\n";
+                << "s (score=" << latencyScore << "), energy=" << lastTaskEnergy 
+                << "J (score=" << energyScore << "), reward=" << lastReward << "\n";
         delete msg;
         if (tick) cancelEvent(tick);
         scheduleAt(simTime() + pollInterval, tick);

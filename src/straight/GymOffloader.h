@@ -39,8 +39,8 @@ class GymOffloader : public omnetpp::cSimpleModule {
     double rxPowerVehicle = 0.3;        // Vehicle receive power (W)
     double batteryCapacity = 3600.0;    // Battery capacity (J)
     double idlePowerVehicle = 0.5;      // Idle power drain (W)
-    double rewardAlpha = 1.0;           // Latency weight in reward
-    double rewardBeta = 0.001;          // Energy weight in reward
+    double rewardAlpha = 0.5;           // Latency weight in reward
+    double rewardBeta = 0.5;            // Energy weight in reward
 
     // state
     omnetpp::cMessage* tick = nullptr;
