@@ -112,11 +112,13 @@ void GymOffloader::handleMessage(cMessage* msg) {
         
         // Compute balanced reward: normalize both metrics to [0,1] then combine
         // Latency normalized: lower latency → higher score
-        double maxLatency = 2.0;  // Typical max latency (s)
+        // Realistic bounds: local ~50-60s, offload ~3-5s
+        double maxLatency = 60.0;  // Max acceptable latency (s)
         double latencyScore = std::max(0.0, 1.0 - (lastTaskLatency / maxLatency));
         
         // Energy normalized: lower energy → higher score
-        double maxEnergy = 50.0;  // Typical max energy per task (J)
+        // Realistic bounds: local ~100J, offload ~200-350J
+        double maxEnergy = 350.0;  // Max acceptable energy per task (J)
         double energyScore = std::max(0.0, 1.0 - (lastTaskEnergy / maxEnergy));
         
         // Balanced combination: equal weight by default
@@ -147,11 +149,11 @@ void GymOffloader::handleMessage(cMessage* msg) {
         
         // Compute balanced reward: normalize both metrics to [0,1] then combine
         // Latency normalized: lower latency → higher score
-        double maxLatency = 2.0;  // Typical max latency (s)
+        double maxLatency = 60.0;  // Max acceptable latency (s)
         double latencyScore = std::max(0.0, 1.0 - (lastTaskLatency / maxLatency));
         
         // Energy normalized: lower energy → higher score
-        double maxEnergy = 50.0;  // Typical max energy per task (J)
+        double maxEnergy = 350.0;  // Max acceptable energy per task (J)
         double energyScore = std::max(0.0, 1.0 - (lastTaskEnergy / maxEnergy));
         
         // Balanced combination: equal weight by default
