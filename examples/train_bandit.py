@@ -59,6 +59,12 @@ class Policy(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+def _extract_obs(reset_result):
+    """Handle both gym (returns obs) and new gym (returns (obs, info))."""
+    if isinstance(reset_result, tuple) and len(reset_result) >= 1:
+        return reset_result[0]
+    return reset_result
+
 def preprocess_obs(obs):
     # obs = [speed, d0, d1, d2, taskMB, busy0, busy1, busy2, ul0, ul1, ul2, battery, energyLocal, energyOffload]
     x = np.asarray(obs, dtype=np.float32).copy()
@@ -98,7 +104,7 @@ def main():
     policy = Policy(obs_dim=14, n_actions=4).to(device)
     opt = optim.Adam(policy.parameters(), lr=args.lr)
 
-    obs = env.reset()
+    obs = _extract_obs(env.reset())
     decisions = 0
     logps, rewards = [], []
     reward_baseline = 0.0
@@ -133,7 +139,7 @@ def main():
 
             obs = next_obs
             if done:
-                obs = env.reset()
+                obs = _extract_obs(env.reset())
     finally:
         try:
             env.close()
